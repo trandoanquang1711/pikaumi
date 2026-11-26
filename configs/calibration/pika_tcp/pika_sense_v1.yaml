@@ -1,0 +1,32 @@
+schema_version: 1
+kind: pikaumi_tracker_tcp_calibration
+device: vive_pika_sense_v1
+gripper_max_width_m: 0.1
+axes_convention: +X wrist-to-fingertip, +Y left jaw opening, +Z top face
+verified: false
+quality_status: provisional_pivot_measured
+sides:
+  left:
+    position:
+    - 0.01047063
+    - -0.00306291
+    - 0.00288602
+    quaternion:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    rms_error_m: 0.00213
+    max_error_m: 0.00334
+  right:
+    position:
+    - 0.00912
+    - 0.00285
+    - 0.0031
+    quaternion:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    rms_error_m: 0.0024
+    max_error_m: 0.0038

@@ -1,0 +1,18 @@
+schema_version: 1
+kind: pikaumi_robot_table_calibration
+robot: openarmv1
+scope: simulation
+source: simulation_initial_pose_alignment
+verified: false
+calibration:
+  frame_convention: pose7=[x,y,z,qx,qy,qz,qw], meters, xyzw quaternion
+  robot_from_table:
+    position:
+    - 0.31214
+    - -0.01286
+    - 0.41755
+    quaternion:
+    - 0.0
+    - 0.0
+    - -0.70710678
+    - 0.70710678

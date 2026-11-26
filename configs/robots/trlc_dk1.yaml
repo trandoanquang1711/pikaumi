@@ -1,0 +1,70 @@
+kind: trlc_dk1
+urdf: assets/trlc-dk1/TRLC-DK1-Bimanual.urdf
+pkg_root: assets/trlc-dk1
+arms:
+  left:
+    ee_link: left_tool0
+    joint_names:
+    - left_joint1
+    - left_joint2
+    - left_joint3
+    - left_joint4
+    - left_joint5
+    - left_joint6
+    gripper_joints:
+    - name: left_gripper_left
+      closed: -0.04
+      open: 0.001
+    - name: left_gripper_right
+      closed: -0.04
+      open: 0.001
+  right:
+    ee_link: right_tool0
+    joint_names:
+    - right_joint1
+    - right_joint2
+    - right_joint3
+    - right_joint4
+    - right_joint5
+    - right_joint6
+    gripper_joints:
+    - name: right_gripper_left
+      closed: -0.04
+      open: 0.001
+    - name: right_gripper_right
+      closed: -0.04
+      open: 0.001
+home_q:
+- 0.0
+- 1.57079633
+- 1.57079633
+- 0.0
+- 0.0
+- 0.0
+- 0.001
+- 0.001
+- 0.0
+- 1.57079633
+- 1.57079633
+- 0.0
+- 0.0
+- 0.0
+- 0.001
+- 0.001
+gripper_max_width_m: 0.082
+handumi_tool:
+  gripper: trlc_dk1_parallel_v1
+  controller_mount: handumi_v1
+ik_weights:
+  pos: 100.0
+  ori: 4.5
+  rest: 4.0
+  max_joint_delta: 0.12
+  max_reach: 0.6
+replay:
+  max_joint_delta: 0.35
+  gripper_retarget: physical-width
+pika_to_ee_rpy:
+- -1.5707963267948966
+- 0.0
+- -1.5707963267948966

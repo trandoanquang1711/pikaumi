@@ -1,0 +1,40 @@
+# Example hardware mapping template for Pika_Data Docker ROS 1 capture.
+# Copy to Pika_Data/config/sensors.yaml and replace with your machine's USB/Vive IDs.
+# Use `bash Pika_Data/scripts/find_usb_kernel.bash` to discover USB kernel paths.
+
+realsense:
+  single:
+    depth_camera_serial: "REPLACE_WITH_REALSENSE_SERIAL"
+  multi:
+    left_depth_camera_serial: "REPLACE_WITH_LEFT_REALSENSE_SERIAL"
+    right_depth_camera_serial: "REPLACE_WITH_RIGHT_REALSENSE_SERIAL"
+
+usb_kernels:
+  multi_sensor:
+    left_serial:   "1-1.2.4:1.0"
+    right_serial:  "1-1.3.4:1.0"
+    left_fisheye:  "1-1.2.1"
+    right_fisheye: "1-1.3.1"
+
+  multi_gripper:
+    left_serial:   "1-2.2.4:1.0"
+    right_serial:  "1-2.1.4:1.0"
+    left_fisheye:  "1-2.2.3:1.0"
+    right_fisheye: "1-2.1.3:1.0"
+
+  sensor_gripper:
+    sensor_serial:   "1-4.4:1.0"
+    gripper_serial:  "1-2.4:1.0"
+    sensor_fisheye:  "1-4.3:1.0"
+    gripper_fisheye: "1-2.3:1.0"
+
+# Optional third observation camera (RealSense driver serial in quotes).
+head_camera:
+  enabled: false
+  serial: "REPLACE_WITH_HEAD_CAMERA_SERIAL"
+  enable_depth: false
+
+# Vive Tracker hardware serial codes (from `survive-cli` / SteamVR).
+vive_trackers:
+  left: "LHR-XXXXXXXX"
+  right: "LHR-YYYYYYYY"

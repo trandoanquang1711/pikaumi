@@ -1,0 +1,100 @@
+kind: piper
+urdf: assets/piper/piper.urdf
+mjcf: assets/piper/piper.xml
+pkg_root: assets/piper
+mjcf_joint_prefix_map:
+  left_: izq_
+  right_: der_
+arms:
+  left:
+    ee_link: left_tcp
+    joint_names:
+    - left_joint1
+    - left_joint2
+    - left_joint3
+    - left_joint4
+    - left_joint5
+    - left_joint6
+    - left_joint7
+    gripper_joints:
+    - name: left_joint7
+      open: 0.035
+  right:
+    ee_link: right_tcp
+    joint_names:
+    - right_joint1
+    - right_joint2
+    - right_joint3
+    - right_joint4
+    - right_joint5
+    - right_joint6
+    - right_joint7
+    gripper_joints:
+    - name: right_joint7
+      open: 0.035
+home_q:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.4363323
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.4363323
+- 0.0
+- 0.0
+posture_q:
+- 0.0
+- 1.7453293
+- -1.5358897
+- null
+- null
+- null
+- null
+- 0.0
+- 1.7453293
+- -1.5358897
+- null
+- null
+- null
+- null
+gripper_max_width_m: 0.07
+handumi_tool:
+  gripper: piper_beta
+  controller_mount: handumi_v1
+controller_tcp_calibrations:
+  meta: configs/calibration/controller_tcp/meta_ARX5_beta.yaml
+  pico: configs/calibration/controller_tcp/pico_piper_beta.yaml
+ik_weights:
+  pos: 125.0
+  ori: 20.0
+  rest: 20.0
+  max_joint_delta: 0.03490659
+  max_reach: 0.7
+replay:
+  max_joint_delta: 0.35
+  ik_weights:
+    ori: 4.5
+    rest: 4.0
+    posture: 2.0
+    limit_margin: 5.0
+  gripper_retarget: normalized
+real:
+  backend: piper_can
+  command_rate_hz: 100
+  max_joint_speed_deg_s: 180
+  max_joint_acceleration_deg_s2: 720
+  home_max_joint_speed_deg_s: 20
+  home_timeout_s: 30
+  home_tolerance_deg: 3
+  startup_speed_percent: 10
+  speed_percent: 80
+  gripper_effort: 1000
+pika_to_ee_rpy:
+- 0.0
+- 1.5707963267948966
+- 0.0

@@ -1,0 +1,97 @@
+kind: piper_pika
+urdf: assets/piper_pika/piper_pika_bimanual.urdf
+pkg_root: assets/piper_pika
+arms:
+  left:
+    ee_link: left_tcp
+    joint_names:
+    - left_joint1
+    - left_joint2
+    - left_joint3
+    - left_joint4
+    - left_joint5
+    - left_joint6
+    - left_joint7
+    gripper_joints:
+    - name: left_joint7
+      closed: -0.05
+      open: 0.0
+  right:
+    ee_link: right_tcp
+    joint_names:
+    - right_joint1
+    - right_joint2
+    - right_joint3
+    - right_joint4
+    - right_joint5
+    - right_joint6
+    - right_joint7
+    gripper_joints:
+    - name: right_joint7
+      closed: -0.05
+      open: 0.0
+home_q:
+- 0.0
+- 1.45
+- -1.35
+- 0.0
+- 0.45
+- 0.0
+- 0.0
+- 0.0
+- 1.45
+- -1.35
+- 0.0
+- 0.45
+- 0.0
+- 0.0
+posture_q:
+- 0.0
+- 1.7453293
+- -1.5358897
+- null
+- null
+- null
+- null
+- 0.0
+- 1.7453293
+- -1.5358897
+- null
+- null
+- null
+- null
+gripper_max_width_m: 0.1
+pika_to_ee_rpy:
+- 0.0
+- 0.0
+- 0.0
+ik_weights:
+  pos: 125.0
+  ori: 20.0
+  rest: 10.0
+  max_joint_delta: 0.06
+  max_reach: 0.72
+replay:
+  max_joint_delta: 0.35
+  gripper_retarget: physical-width
+  ik_weights:
+    ori: 6.0
+    rest: 4.0
+    posture: 2.0
+    limit_margin: 5.0
+real:
+  backend: piper_can
+  sdk: auto
+  firmware: S-V1.8-9
+  fault_mode: HOLD_LAST_SAFE
+  command_rate_hz: 200
+  max_joint_speed_deg_s: 180
+  max_joint_acceleration_deg_s2: 720
+  home_max_joint_speed_deg_s: 20
+  home_timeout_s: 30
+  home_tolerance_deg: 3.0
+  startup_speed_percent: 10
+  speed_percent: 60
+  gripper_effort: 1000
+  gripper_force_n: 1.0
+

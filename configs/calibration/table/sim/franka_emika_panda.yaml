@@ -1,0 +1,18 @@
+schema_version: 1
+kind: pikaumi_robot_table_calibration
+robot: franka_emika_panda
+scope: simulation
+source: configured_simulation_layout
+verified: false
+calibration:
+  frame_convention: pose7=[x,y,z,qx,qy,qz,qw], meters, xyzw quaternion
+  robot_from_table:
+    position:
+    - 0.45
+    - 0.0
+    - 0.0
+    quaternion:
+    - 0.0
+    - 0.0
+    - -0.7071067811865475
+    - 0.7071067811865476

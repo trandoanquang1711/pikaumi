@@ -1,0 +1,20 @@
+min_frames: 10
+min_duration_s: 1.0
+warmup_s: 0.2
+max_bad_tracking_fraction: 0.01
+max_bad_sync_fraction: 0.01
+max_sync_skew_ms: 40.0
+max_lr_image_skew_ms: 10.0
+max_sensor_gap_ms: 30.0
+max_linear_speed_m_s: 2.5
+max_angular_speed_rad_s: 15.0
+max_frozen_pose_ms: 250.0
+min_gripper_range_m: 0.002
+screening:
+  max_pos_error_m: 0.03
+  warn_pos_error_m: 0.015
+  strict_pos_error_m: 0.005
+  max_rot_error_deg: 45.0
+  max_base_swing_deg: 60.0
+  min_self_collision_clearance_m: -0.002
+  min_table_z_m: -0.005

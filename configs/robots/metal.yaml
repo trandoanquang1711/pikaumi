@@ -1,0 +1,71 @@
+kind: metal
+urdf: assets/metal/metal_bimanual.urdf
+pkg_root: assets/metal
+arms:
+  left:
+    ee_link: left_tcp
+    joint_names:
+    - left_joint1
+    - left_joint2
+    - left_joint3
+    - left_joint4
+    - left_joint5
+    - left_joint6
+    - left_joint7
+    gripper_joints:
+    - name: left_joint7
+      closed: 0.0
+      open: -0.05
+  right:
+    ee_link: right_tcp
+    joint_names:
+    - right_joint1
+    - right_joint2
+    - right_joint3
+    - right_joint4
+    - right_joint5
+    - right_joint6
+    - right_joint7
+    gripper_joints:
+    - name: right_joint7
+      closed: 0.0
+      open: -0.05
+home_q:
+- 0.0
+- -0.9
+- 0.6
+- 0.0
+- 0.0
+- 0.0
+- -0.05
+- 0.0
+- -0.9
+- 0.6
+- 0.0
+- 0.0
+- 0.0
+- -0.05
+gripper_max_width_m: 0.1055
+handumi_tool:
+  gripper: piper_beta
+  controller_mount: handumi_v1
+controller_tcp_calibrations:
+  meta: configs/calibration/controller_tcp/meta_ARX5_beta.yaml
+  pico: configs/calibration/controller_tcp/pico_piper_beta.yaml
+ik_weights:
+  pos: 100.0
+  ori: 4.5
+  rest: 4.0
+  self_collision: 100.0
+  self_collision_margin: 0.015
+  self_collision_pairs: all
+  collision_activation_distance: 0.05
+  max_joint_delta: 0.12
+  max_reach: 0.55
+replay:
+  max_joint_delta: 0.35
+  gripper_retarget: physical-width
+pika_to_ee_rpy:
+- 3.141592653589793
+- -1.5707963267948966
+- 0.0

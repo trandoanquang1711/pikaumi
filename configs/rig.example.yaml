@@ -1,0 +1,70 @@
+pika_sense:
+  docker_container: pika-ros
+  ros_root: /root/pika_ros
+  left:
+    fisheye_device: /dev/video50
+    serial_device: /dev/ttyUSB50
+    vive_tracker_code: LHR-0AE19791
+    d405_serial: '260522277249'
+  right:
+    fisheye_device: /dev/video51
+    serial_device: /dev/ttyUSB51
+    vive_tracker_code: LHR-8A6C081E
+    d405_serial: '260622272056'
+  head_camera:
+    enabled: false
+    model: realsense_d435i
+    serial: '317622076044'
+    width: 640
+    height: 480
+    fps: 30
+recording:
+  fps: 30
+  camera_fps: 30
+  sync_lag_ms: 40.0
+  default_robot: piper_pika
+spatial_calibration:
+  board:
+    id: charuco_4x5_45mm_dict4x4
+    squares_x: 4
+    squares_y: 5
+    dictionary: DICT_4X4_50
+    square_length_m: 0.045
+    marker_length_m: 0.035
+robots:
+  piper_pika:
+    can:
+      sdk: auto # auto (prefers pyAgxArm, falls back to piper_sdk) | pyagxarm | piper_sdk
+      firmware: S-V1.8-9
+      bitrate: 1000000
+      left_port: can0
+      right_port: can1
+      speed_percent: 60
+      startup_speed_percent: 10
+      gripper_effort: 1000
+      gripper_force_n: 1.0
+      gripper_max_width_mm: 100.0
+    auto_enable: false
+    fault_mode: HOLD_LAST_SAFE
+  piper:
+    can:
+      sdk: auto
+      firmware: S-V1.8-9
+      bitrate: 1000000
+      left_port: can0
+      right_port: can1
+      speed_percent: 60
+      startup_speed_percent: 10
+      gripper_effort: 1000
+      gripper_force_n: 1.0
+      gripper_max_width_mm: 70.0
+    auto_enable: false
+    fault_mode: HOLD_LAST_SAFE
+  openarmv1:
+    can:
+      fd: true
+      bitrate: 1000000
+      dbitrate: 5000000
+      left_port: can1
+      right_port: can0
+

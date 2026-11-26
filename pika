@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+WORKSPACE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_BIN="${PIKA_PYTHON:-}"
+if [[ -z "$PYTHON_BIN" ]]; then
+    for candidate in \
+        "$WORKSPACE_ROOT/.venv/bin/python" \
+        "$WORKSPACE_ROOT/.venv-pika-dataset/bin/python" \
+        "$WORKSPACE_ROOT/.venv-pika/bin/python" \
+        "$(command -v python3 || true)"; do
+        if [[ -n "$candidate" && -x "$candidate" ]] && "$candidate" -c "import numpy, scipy, cv2, yaml" >/dev/null 2>&1; then
+            PYTHON_BIN="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$PYTHON_BIN" ]]; then
+        PYTHON_BIN="$(command -v python3)"
+    fi
+fi
+export PYTHONPATH="$WORKSPACE_ROOT/src:$WORKSPACE_ROOT/Pika_Data/data_tools${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON_BIN" -m pikaumi.cli "$@"

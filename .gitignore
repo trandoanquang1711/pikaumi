@@ -1,0 +1,78 @@
+# ==============================================================================
+# Python, Pytest, Virtual Environments & IDE Caches
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv*/
+.idea/
+.cache/
+*.egg-info/
+
+# ==============================================================================
+# ROS 2 / Colcon Build Outputs & Simulation Eval Scratch Outputs
+# ==============================================================================
+/build/
+/install/
+/log/
+piper_ros-humble/build/
+piper_ros-humble/install/
+piper_ros-humble/log/
+umi-vista-main/simulation_evaluation/*/outputs/
+umi-vista-main/post_training/lerobot/outputs/
+umi-vista-main/post_training/lerobot/third_party/pi_transformers/
+umi-vista-main/physical_validation/cross_embodiment_replay_and_score/assets/
+
+# ==============================================================================
+# Heavy Recorded Datasets, Videos, Checkpoints & Processed Outputs
+# (Anchored so umi-vista-main/post_training/lerobot/ & docs/source/ stay tracked!)
+# ==============================================================================
+/lerobot/
+/source/
+/prepared/
+/data/raw/
+/data/source/
+/data/prepared/
+/data/processed/
+Pika_Data/data/raw/
+Pika_Data/data/source/
+Pika_Data/data/prepared/
+*.hdf5
+*.mp4
+*.npz
+*.safetensors
+
+# ==============================================================================
+# Explicitly Tracked Calibration Files, Base Alignment & Agent Skills
+# ==============================================================================
+!data/
+!data/pika_calibration/
+!data/pika_calibration/**
+!Pika_Data/data/pika_calibration/
+!Pika_Data/data/pika_calibration/**
+!base_check/
+!base_check/**
+!**/base_check/
+!**/base_check/**
+!.agents/
+!.agents/skills/
+!.agents/skills/**
+!.gemini/
+!.gemini/skills
+
+# ==============================================================================
+# Machine-Local Rig, Reference Repos & Physical Table Calibrations
+# ==============================================================================
+/configs/rig.yaml
+/configs/calibration/table/local/*.yaml
+!/configs/calibration/table/local/example.yaml
+/Pika_Data/config/sensors.yaml
+/outputs/
+/handumi-sw/
+/Pika_Data_source_2026-09-30/
+/data/*
+!/data/pika_calibration/
+!/data/pika_calibration/**
+/tasks/
+/skills/

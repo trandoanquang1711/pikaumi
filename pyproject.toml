@@ -1,0 +1,115 @@
+[project]
+name = "pikaumi"
+version = "0.2.0"
+description = "Robot-free Dual Pika Sense bimanual demonstration capture, gated calibration, and C-STRO multi-robot retargeting"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pyyaml>=6.0",
+    "opencv-contrib-python>=4.8",
+]
+
+[project.optional-dependencies]
+dataset = [
+    "pyarrow>=15.0",
+    "av>=12.0",
+    "h5py>=3.10",
+]
+pyroki = [
+    "jax>=0.4.30",
+    "jaxlie>=1.0.0",
+    "jaxls @ git+https://github.com/brentyi/jaxls.git",
+    "yourdfpy>=0.0.56",
+    "pyroki @ git+https://github.com/chungmin99/pyroki.git",
+    "trimesh>=4.4.0",
+]
+sim = [
+    "viser>=1.0.0",
+    "mujoco>=3.2.0",
+    "pybullet>=3.2.5",
+]
+piper = [
+    "pyAgxArm @ git+https://github.com/agilexrobotics/pyAgxArm.git",
+    "python-can>=4.5.0",
+]
+piper-legacy = [
+    "piper-sdk>=0.6.1",
+    "python-can>=4.5.0",
+]
+openarm = [
+    "openarm_can @ git+https://github.com/enactic/openarm_can.git@1.2.9#subdirectory=python",
+]
+voice = [
+    "vosk>=0.3.45",
+    "sounddevice>=0.4.6",
+    "rich>=13.9",
+]
+vla = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "datasets>=2.19",
+    "transformers>=4.42",
+]
+
+[project.scripts]
+pika = "pikaumi.cli:main"
+pk = "pikaumi.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pikaumi"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"assets/pika_gripper" = "pikaumi/assets/pika_gripper"
+"assets/piper_pika" = "pikaumi/assets/piper_pika"
+"assets/piper" = "pikaumi/assets/piper"
+"assets/openarm" = "pikaumi/assets/openarm"
+"assets/arx5" = "pikaumi/assets/arx5"
+"assets/yam" = "pikaumi/assets/yam"
+"assets/trlc-dk1" = "pikaumi/assets/trlc-dk1"
+"assets/metal" = "pikaumi/assets/metal"
+"assets/r1lite" = "pikaumi/assets/r1lite"
+"assets/franka_emika_panda" = "pikaumi/assets/franka_emika_panda"
+"assets/scenes" = "pikaumi/assets/scenes"
+"configs/quality.yaml" = "pikaumi/configs/quality.yaml"
+"configs/rig.example.yaml" = "pikaumi/configs/rig.example.yaml"
+"configs/robots" = "pikaumi/configs/robots"
+# Privacy hygiene: never ship machine-local configs/rig.yaml or
+# configs/calibration/table/local/*.yaml in built wheels.
+"configs/calibration/pika_tcp" = "pikaumi/configs/calibration/pika_tcp"
+"configs/calibration/table/sim" = "pikaumi/configs/calibration/table/sim"
+"configs/calibration/table/local/example.yaml" = "pikaumi/configs/calibration/table/local/example.yaml"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/pikaumi",
+    "assets",
+    "configs/quality.yaml",
+    "configs/rig.example.yaml",
+    "configs/robots",
+    "configs/calibration/pika_tcp",
+    "configs/calibration/table/sim",
+    "configs/calibration/table/local/example.yaml",
+    "docs",
+    "README.md",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W", "I", "UP"]
