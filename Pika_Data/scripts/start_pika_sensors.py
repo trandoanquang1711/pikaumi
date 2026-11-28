@@ -75,9 +75,11 @@ def build_sensor_child_env(base_env, vive_trackers=None):
     return child_env
 
 
-def configured_script(path, camera_fps=None, depth_serials=None, vive_trackers=None):
-    if camera_fps is not None and camera_fps not in (15, 30):
-        raise ValueError("Camera FPS must be 15 or 30.")
+def configured_script(path, camera_fps=None, depth_serials=None, vive_trackers=None, *, wrist_camera="fisheye"):
+    if camera_fps is not None and camera_fps not in (15, 30, 60, 90):
+        raise ValueError("Camera FPS must be 15, 30, 60, or 90.")
+    if camera_fps in (60, 90) and wrist_camera != "d405":
+        raise ValueError(f"Camera FPS {camera_fps} requires --wrist-camera d405.")
     script = path.read_text()
     if camera_fps is not None:
         script, count = re.subn(r"(?m)^camera_fps=[0-9]+[ \t]*$", f"camera_fps={camera_fps}", script)
@@ -114,26 +116,38 @@ def configured_script(path, camera_fps=None, depth_serials=None, vive_trackers=N
     return script
 
 
-def head_launch(installed_launch, profile, vive_trackers=None):
-    """Wrap the installed launch so all sensors share one roslaunch lifecycle."""
+def head_launch(installed_launch, profile, vive_trackers=None, wrist_camera="fisheye"):
+    """Build one roslaunch configuration for the selected sensors."""
     enabled = profile.get("enabled", False)
     if not isinstance(enabled, bool):
         raise ValueError("head_camera.enabled must be boolean")
-    root = ET.Element("launch")
     original = ET.parse(installed_launch).getroot()
-    include = ET.Element("include", file=str(installed_launch))
     validated_vive = validate_vive_trackers(vive_trackers)
     vive_arg_overrides = {
         f"pika_{side[0].upper()}_code": code for side, code in validated_vive.items()
     }
     for arg in original.findall("arg"):
-        arg_name = arg.attrib["name"]
-        cloned = ET.fromstring(ET.tostring(arg))
-        if arg_name in vive_arg_overrides:
-            cloned.attrib["default"] = vive_arg_overrides[arg_name]
-        root.append(cloned)
-        ET.SubElement(include, "arg", name=arg_name, value="$(arg " + arg_name + ")")
-    root.append(include)
+        if arg.attrib["name"] in vive_arg_overrides:
+            arg.set("default", vive_arg_overrides[arg.attrib["name"]])
+    if wrist_camera == "d405":
+        for suffix in ("l", "r"):
+            cameras = [node for node in original.findall("node")
+                       if node.get("pkg") == "sensor_tools" and node.get("type") == "usb_camera.py"
+                       and node.get("name", "").endswith(f"camera_fisheye_{suffix}")]
+            if len(cameras) != 1:
+                raise ValueError(f"Expected one fisheye camera node for side {suffix} in {installed_launch}")
+            original.remove(cameras[0])
+        root = original
+    elif wrist_camera == "fisheye":
+        root = ET.Element("launch")
+        include = ET.Element("include", file=str(installed_launch))
+        for arg in original.findall("arg"):
+            root.append(arg)
+            arg_name = arg.attrib["name"]
+            ET.SubElement(include, "arg", name=arg_name, value=f"$(arg {arg_name})")
+        root.append(include)
+    else:
+        raise ValueError(f"Unsupported wrist camera: {wrist_camera}")
     settings = {"enabled": enabled}
     if enabled:
         serial = profile.get("serial", "")
@@ -164,6 +178,7 @@ def main():
 
     path = Path(sys.argv[1]) / "install/share/sensor_tools/scripts/start_multi_sensor.bash"
     config = yaml.safe_load(sys.argv[3])
+    wrist_camera = os.environ.get("PIKA_WRIST_CAMERA", "fisheye")
     profile = config["realsense"]["multi"]
     serials = {side: str(profile[f"{side}_depth_camera_serial"]) for side in ("left", "right")}
     vive_trackers = validate_vive_trackers(config.get("vive_trackers") or None)
@@ -172,6 +187,7 @@ def main():
         int(sys.argv[2]) if sys.argv[2] else None,
         serials,
         vive_trackers=vive_trackers,
+        wrist_camera=wrist_camera,
     )
     head = dict(config.get("head_camera", {}))
     if "PIKA_USE_HEAD" in os.environ:
@@ -182,6 +198,7 @@ def main():
         Path(sys.argv[1]) / "install/share/sensor_tools/launch/open_multi_sensor.launch",
         head,
         vive_trackers=vive_trackers,
+        wrist_camera=wrist_camera,
     )
     fd = acquire_sensor_lock()
     print(f"D405 serials from config/sensors.yaml: left={serials['left']}, right={serials['right']}", flush=True)

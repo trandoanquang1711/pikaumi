@@ -11,7 +11,6 @@ import numpy as np
 
 
 SIDES = {"left": "pika_l", "right": "pika_r"}
-CAMERAS = {f"observation.images.{side}_wrist": f"images/{side}_fisheye_rgb/frames" for side in SIDES}
 ACTION_NAMES = [
     f"{side}_{field}" for side in SIDES
     for field in ("dx_m", "dy_m", "dz_m", "rx_rad", "ry_rad", "rz_rad", "gripper_width_m")
@@ -174,7 +173,8 @@ def tcp_labels(pose, width, calibration):
 
 
 def dataset_cameras(group):
-    cameras = dict(CAMERAS)
+    mode = group.attrs.get("wrist_camera", "fisheye")
+    cameras = {f"observation.images.{side}_wrist": f"images/{side}_{mode}_rgb/frames" for side in SIDES}
     if "images/head_rgb/frames" in group:
         cameras["observation.images.head"] = "images/head_rgb/frames"
     return cameras
@@ -195,10 +195,11 @@ def prepare(source, raw_episode, calibration, output, min_segment_seconds=1.0,
         times = group["timestamp_ns"][:]
         if len(times) < 2 or not np.array_equal(times, timestamp_grid(int(times[0]), int(times[-1]), fps)):
             raise ValueError(f"The source timestamps are not on the {fps} Hz grid")
-        # VISTA observes only the wrist pair. D405 RGB/depth gaps do not invalidate its labels.
         motion_valid = group.get("motion_valid", group["valid"])[:].astype(bool)
+        cameras = dataset_cameras(group)
         wrist_times = np.column_stack([
-            group[f"images/{side}_fisheye_rgb/timestamp_ns"][:] for side in SIDES
+            group[cameras[f"observation.images.{side}_wrist"].rsplit("/", 1)[0] + "/timestamp_ns"][:]
+            for side in SIDES
         ])
         wrist_age_ns = times[:, None] - wrist_times
         wrist_skew_ns = np.ptp(wrist_times, axis=1)
@@ -244,7 +245,7 @@ def prepare(source, raw_episode, calibration, output, min_segment_seconds=1.0,
             "action_fields": ACTION_NAMES, "state_fields": STATE_NAMES,
             "action_semantics": "Per-step TCP-local pose increment (t to t+1) and next absolute width",
             "tcp_measurements": measurements, "motion_screen": screen, "tracking_status": tracking,
-            "cameras": dataset_cameras(group), "head_sync": head_sync,
+            "cameras": cameras, "head_sync": head_sync,
             "wrist_sync": {
                 "pairing": str(file.attrs.get("wrist_pairing", "legacy_independent")),
                 "max_age_ms": max_age_ms, "max_skew_ms": max_skew_ms,
@@ -363,6 +364,7 @@ def _export_lerobot_v3_native(prepared_dirs, output: Path, repo_id: str, represe
                 source = stack.enter_context(h5py.File(report["source_hdf5"], "r"))
                 group = source[f"source_episodes/{report['episode']}"]
                 cameras = dataset_cameras(group)
+                report["cameras"] = cameras
                 if "observation.images.head" in cameras and report.get("head_sync") is None:
                     raise ValueError("Head camera labels must be regenerated with head synchronization checks")
                 images = {key: group[path] for key, path in cameras.items()}
@@ -397,11 +399,11 @@ def _export_lerobot_v3_native(prepared_dirs, output: Path, repo_id: str, represe
                 }
                 if features is None:
                     features = cur_features
-                    expected_cameras = set(images)
-                elif set(images) != expected_cameras or any(
+                    expected_cameras = cameras
+                elif cameras != expected_cameras or any(
                     cur_features[k]["shape"] != features[k]["shape"] for k in images
                 ):
-                    raise ValueError(f"Episode image dimensions differ: {prepared}")
+                    raise ValueError(f"Episode camera streams or image dimensions differ: {prepared}")
 
                 report["provenance"] = write_dataset_provenance(staging, group, rows, report)
                 all_states.append(state)
@@ -557,6 +559,7 @@ def export_lerobot(prepared_dirs, output, repo_id, format_version="v3.0", repres
                     source = stack.enter_context(h5py.File(report["source_hdf5"], "r"))
                     group = source[f"source_episodes/{report['episode']}"]
                     cameras = dataset_cameras(group)
+                    report["cameras"] = cameras
                     if "observation.images.head" in cameras and report.get("head_sync") is None:
                         raise ValueError("Head camera labels must be regenerated with head synchronization checks")
                     images = {key: group[path] for key, path in cameras.items()}
@@ -585,9 +588,9 @@ def export_lerobot(prepared_dirs, output, repo_id, format_version="v3.0", repres
                     if dataset is None:
                         dataset = LeRobotDataset.create(repo_id, fps=int(report["fps"]), root=staging, features=features,
                                                         robot_type="dual_pika", video_backend="pyav")
-                    elif (set(images) != set(dataset.meta.camera_keys)
+                    elif (cameras != reports[0]["cameras"]
                           or any(features[key]["shape"] != dataset.features[key]["shape"] for key in images)):
-                        raise ValueError(f"Episode image dimensions differ: {prepared}")
+                        raise ValueError(f"Episode camera streams or image dimensions differ: {prepared}")
                     report["provenance"] = write_dataset_provenance(staging, group, rows, report)
                     state_stats.update(state)
                     action_stats.update(action)

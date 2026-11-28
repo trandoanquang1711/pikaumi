@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -41,21 +42,28 @@ def test_record_dispatch_preserves_instruction_as_one_argument(tmp_path, monkeyp
     assert calls == [["bash", str(ROOT / "scripts/record_pika_episode.sh"), "multi", "9", instruction]]
 
 
-def test_sensor_start_loads_existing_tracker_environment(monkeypatch):
+@pytest.mark.parametrize("wrist_camera,fps", [("fisheye", ""), ("d405", "60"), ("d405", "90")])
+def test_sensor_start_loads_existing_tracker_environment(monkeypatch, wrist_camera, fps):
     calls = []
     monkeypatch.setattr(cli.subprocess, "run", lambda args, **kwargs: calls.append(args))
     monkeypatch.setenv("PIKA_CONTAINER", "test-pika")
     monkeypatch.setenv("PIKA_ROS_ROOT", "/root/pika ros")
-    cli.main(["sensors"])
-    assert calls[0][:6] == ["docker", "exec", "-it", "test-pika", "bash", "-lic"]
+    options = ["--wrist-camera", wrist_camera, "--camera-fps", fps] if fps else []
+    cli.main(["sensors", *options])
+    assert calls[0][:8] == ["docker", "exec", "-it", "-e", f"PIKA_WRIST_CAMERA={wrist_camera}",
+                           "test-pika", "bash", "-lic"]
     assert calls[0][-5:-3] == ["_", "/root/pika ros"]
-    assert calls[0][-2] == ""  # No FPS override; still apply configured serials.
+    assert calls[0][-2] == fps
     assert calls[0][-1] == (ROOT / "config/sensors.yaml").read_text()
 
 
-def test_export_explicit_root_needs_no_docker_and_wont_overwrite(tmp_path, monkeypatch):
+@pytest.mark.parametrize("recorded,override,expected", [(None, None, 20), (60, None, 60), (60, 75, 75)])
+def test_export_explicit_root_needs_no_docker_and_wont_overwrite(tmp_path, monkeypatch, recorded, override, expected):
     raw = tmp_path / "raw"
-    (raw / "episode9").mkdir(parents=True)
+    episode = raw / "episode9"
+    episode.mkdir(parents=True)
+    if recorded is not None:
+        (episode / "capture_metadata.json").write_text(json.dumps({"export_fps": recorded}))
     cal = tmp_path / "calibration"
     cal.mkdir()
     for side in ("left", "right"):
@@ -66,15 +74,45 @@ def test_export_explicit_root_needs_no_docker_and_wont_overwrite(tmp_path, monke
     monkeypatch.setattr(cli.subprocess, "run", lambda args, **kwargs: calls.append(args))
     arguments = ["export", "9", "--data-root", str(raw), "--calibration-dir", str(cal),
                  "--output-dir", str(destination)]
+    if override is not None:
+        arguments += ["--fps", str(override)]
     cli.main(arguments)
     assert calls == [["/example/python", str(ROOT / "data_tools/prepare_pika_dataset.py"),
                       "--data-root", str(raw), "--episodes", "episode9",
                       "--calibration-dir", str(cal), "--output-dir", str(destination),
-                      "--fps", "20", "--max-image-offset-ms", "40.0", "--max-sensor-gap-ms", "30.0", "--vista-only"]]
+                      "--fps", str(expected), "--max-image-offset-ms", "40.0", "--max-sensor-gap-ms", "30.0", "--vista-only"]]
     destination.mkdir()
     with pytest.raises(ValueError, match="will not be overwritten"):
         cli.main(arguments)
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("preflight_ok", [True, False])
+def test_record_fps_checks_streams_and_passes_export_rate(tmp_path, monkeypatch, preflight_ok):
+    calls = []
+    monkeypatch.delenv("PIKA_DATA_DIR", raising=False)
+    monkeypatch.setattr(cli, "resolve_data_root", lambda *args: tmp_path)
+    monkeypatch.setattr(cli, "export_python", lambda: "/example/python")
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        if not preflight_ok:
+            raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    args = ["record", "9", "fold a towel", "--wrist-camera", "D405", "--fps", "60"]
+    if preflight_ok:
+        cli.main(args)
+        assert len(calls) == 2
+        assert calls[1][1]["env"]["PIKA_EXPORT_FPS"] == "60"
+    else:
+        with pytest.raises(subprocess.CalledProcessError):
+            cli.main(args)
+        assert len(calls) == 1
+    probe = calls[0][0]
+    assert probe[1].endswith("/pika_sync.py")
+    assert probe[probe.index("--fps") + 1] == "60"
+    assert probe[probe.index("--wrist-camera") + 1] == "d405"
 
 
 def test_export_reads_actual_docker_mount_when_unconfigured(tmp_path, monkeypatch):

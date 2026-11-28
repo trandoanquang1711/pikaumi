@@ -7,7 +7,8 @@ import subprocess
 
 import numpy as np
 
-from pika_options import EXPORT_DEFAULTS, TIMING_KEYS, add_timing_options, add_head_option
+from pika_options import (EXPORT_DEFAULTS, TIMING_KEYS, add_timing_options, add_head_option,
+                          add_wrist_option, wrist_skew_default)
 from prepare_pika_dataset import brackets, sample_head, sample_wrist_pair, timestamp_grid, valid_runs
 
 
@@ -76,11 +77,15 @@ def main():
     parser.add_argument("--ros-root", required=True)
     add_timing_options(parser)
     add_head_option(parser)
-    parser.set_defaults(**{key: EXPORT_DEFAULTS[key] for key in TIMING_KEYS})
+    add_wrist_option(parser)
+    parser.set_defaults(**{key: EXPORT_DEFAULTS[key] for key in TIMING_KEYS if key != "max_image_skew_ms"})
     args = parser.parse_args()
+    if args.max_image_skew_ms is None:
+        args.max_image_skew_ms = wrist_skew_default(args.wrist_camera)
     code = (Path(__file__).resolve().parents[1] / "scripts/pika_stream_probe.py").read_text()
     head_env = [] if args.use_head is None else ["-e", f"PIKA_USE_HEAD={str(args.use_head).lower()}"]
-    result = subprocess.run(["docker", "exec", *head_env, args.container, "bash", "-lc",
+    result = subprocess.run(["docker", "exec", *head_env, "-e", f"PIKA_WRIST_CAMERA={args.wrist_camera}",
+                             args.container, "bash", "-lc",
                              'source "$1/install/setup.bash" && exec python3 -c "$2"',
                              "_", args.ros_root, code], check=True, capture_output=True, text=True, timeout=18)
     report = analyze(json.loads(result.stdout), **{key: getattr(args, key) for key in TIMING_KEYS})

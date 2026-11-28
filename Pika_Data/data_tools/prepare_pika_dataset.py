@@ -19,6 +19,8 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation, Slerp
 
+from pika_options import add_fps_option, recorded_export_fps, recorded_wrist_camera, wrist_skew_default
+
 
 SIDES = {"left": "pika_l", "right": "pika_r"}
 IMAGE_STREAMS = {
@@ -217,7 +219,8 @@ def prepare_episode(data_root, name, args):
             ["x", "y", "z", "roll", "pitch", "yaw"])
         streams[f"gripper_{side}"] = read_stream(
             episode / "gripper/encoder" / label, {".json"}, ["angle", "distance"])
-    wrist_keys = tuple(f"{side}_fisheye_rgb" for side in SIDES)
+    wrist_camera = recorded_wrist_camera(episode)
+    wrist_keys = tuple(f"{side}_{wrist_camera}_rgb" for side in SIDES)
     image_streams = {key: IMAGE_STREAMS[key] for key in wrist_keys} if args.vista_only else dict(IMAGE_STREAMS)
     if not getattr(args, "exclude_head", False):
         image_streams.update(head_streams(episode))
@@ -299,7 +302,7 @@ def prepare_episode(data_root, name, args):
     if not runs:
         raise ValueError(f"No valid transitions: {episode}")
     intrinsics = {side: resolve_intrinsic(data_root, episode, side, args.calibration_dir)
-                  for side in SIDES}
+                  for side in SIDES if f"{side}_fisheye_rgb" in image_streams}
     # Check actual image dimensions and type, rather than zero fisheye CameraInfo.
     camera_configs = {}
     for key, relative in image_streams.items():
@@ -318,18 +321,19 @@ def prepare_episode(data_root, name, args):
                 raise ValueError(f"Fisheye calibration resolution mismatch: {key}")
         else:
             camera_configs[key] = json.loads((episode / relative / "config.json").read_text())
-            if key.startswith("head_"):
+            if key.startswith("head_") or (wrist_camera == "d405" and key in wrist_keys):
                 c = camera_configs[key]
                 k = np.asarray(c["K"], dtype=float).reshape(3, 3)
                 if ((c["width"], c["height"]) != (first.shape[1], first.shape[0])
                         or not np.isfinite(k).all() or k[0, 0] <= 0 or k[1, 1] <= 0):
-                    raise ValueError(f"Invalid head CameraInfo or resolution mismatch: {key}")
+                    raise ValueError(f"Invalid CameraInfo or resolution mismatch: {key}")
         report[key]["shape"] = list(first.shape)
     return dict(name=name, episode=episode, grid=grid, valid=valid, motion_valid=motion_valid, runs=runs,
                 pose=np.stack(poses, axis=1), width=np.stack(widths, axis=1),
                 angle=np.stack(angles, axis=1), streams=streams,
                 numeric_provenance=numeric_provenance, image_provenance=image_provenance,
                 instruction=instruction, intrinsics=intrinsics, camera_configs=camera_configs,
+                wrist_camera=wrist_camera,
                 report={"streams": report, "grid_rows": len(grid), "valid_rows": int(valid.sum()),
                         "rejected_rows": int((~valid).sum()), "segments": len(runs),
                         "isolated_valid_rows": int(valid.sum())-sum(b-a for a,b in runs),
@@ -405,6 +409,7 @@ def export_episode(root, output, args):
     name = output["name"]
     g = root.require_group("source_episodes").create_group(name)
     g.attrs["source_episode"] = name  # relative to --data-root; movable with the dataset
+    g.attrs["wrist_camera"] = output["wrist_camera"]
     g.attrs["instruction"] = json.dumps(output["instruction"], ensure_ascii=False)
     g.create_dataset("timestamp_ns", data=output["grid"])
     g.create_dataset("valid", data=output["valid"])
@@ -475,28 +480,23 @@ def export_episode(root, output, args):
 
 def main(argv=None):
     import h5py
-    from pika_options import FPS_CHOICES, source_filename
+    from pika_options import source_filename
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--episodes", nargs="+", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--calibration-dir", type=Path)
-    parser.add_argument("--fps", type=int, choices=FPS_CHOICES, default=20)
+    add_fps_option(parser, description="Dataset rate (5–90 Hz). Defaults to the recorded export rate or 20 Hz.")
     parser.add_argument("--image-policy", choices=["nearest", "causal"], default="causal")
     parser.add_argument("--max-image-offset-ms", type=float, default=40)
-    parser.add_argument("--max-image-skew-ms", type=float, help="Default: 10 ms for --vista-only, 40 ms otherwise")
+    parser.add_argument("--max-image-skew-ms", type=float, help="Default: 10 ms for fisheye RGB, 40 ms for D405 or all streams")
     parser.add_argument("--max-sensor-gap-ms", type=float, default=30)
     parser.add_argument("--max-pika-width-m", type=float, default=.11)
     parser.add_argument("--image-size", type=int, nargs=2, metavar=("WIDTH", "HEIGHT"))
     parser.add_argument("--vista-only", action="store_true", help="Keep only the two wrist RGB image streams")
     parser.add_argument("--exclude-head", action="store_true", help="Exclude head from synchronization and output without altering raw data")
     args = parser.parse_args(argv)
-    if args.max_image_skew_ms is None:
-        args.max_image_skew_ms = 10 if args.vista_only else 40
-    if any(x <= 0 for x in [args.max_image_offset_ms, args.max_image_skew_ms,
-                           args.max_sensor_gap_ms, args.max_pika_width_m]):
-        parser.error("All physical/time limits must be positive")
     if args.image_size and any(x <= 0 for x in args.image_size):
         parser.error("Image dimensions must be positive")
     if len(set(args.episodes)) != len(args.episodes):
@@ -504,6 +504,19 @@ def main(argv=None):
     if any(Path(x).name != x for x in args.episodes):
         parser.error("Episodes must be directory names within data-root")
     data_root, destination = args.data_root.resolve(), args.output_dir.resolve()
+    modes = {recorded_wrist_camera(data_root / name) for name in args.episodes}
+    if len(modes) != 1:
+        parser.error("All episodes in a source export must use the same wrist camera")
+    if args.fps is None:
+        recorded_rates = {recorded_export_fps(data_root / name) for name in args.episodes}
+        if len(recorded_rates) != 1:
+            parser.error("Episodes have different export FPS settings. Pass --fps to use one rate.")
+        args.fps = recorded_rates.pop()
+    if args.max_image_skew_ms is None:
+        args.max_image_skew_ms = wrist_skew_default(next(iter(modes)), args.vista_only)
+    if any(x <= 0 for x in [args.max_image_offset_ms, args.max_image_skew_ms,
+                           args.max_sensor_gap_ms, args.max_pika_width_m]):
+        parser.error("All physical/time limits must be positive")
     if destination.exists():
         parser.error(f"Output already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)

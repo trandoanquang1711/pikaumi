@@ -2,6 +2,7 @@
 
 import functools
 import json
+import os
 import time
 
 
@@ -25,8 +26,9 @@ def collect():
     def accuracy(side, message):
         tracking[side].append(bool(message.accurate))
 
+    camera = {"fisheye": "camera_fisheye", "d405": "camera"}[os.environ.get("PIKA_WRIST_CAMERA", "fisheye")]
     for side, suffix in (("left", "l"), ("right", "r")):
-        streams = [(f"{side}_image", f"/camera_fisheye_{suffix}/color/image_raw", Image),
+        streams = [(f"{side}_image", f"/{camera}_{suffix}/color/image_raw", Image),
                    (f"{side}_pose", f"/pika_pose_{suffix}", PoseStamped),
                    (f"{side}_gripper", f"/gripper_{suffix}/data", Gripper)]
         for key, topic, message_type in streams:
@@ -37,7 +39,6 @@ def collect():
         tracking[side] = []
         subscribers.append(rospy.Subscriber(f"/pika_localization_status_{suffix}", LocalizationStatus,
                                              functools.partial(accuracy, side), queue_size=1))
-    import os
     profile = dict(rospy.get_param("/pika_head_camera", {"enabled": False}))
     requested = os.environ.get("PIKA_USE_HEAD")
     if requested == "true" and not profile.get("enabled"):

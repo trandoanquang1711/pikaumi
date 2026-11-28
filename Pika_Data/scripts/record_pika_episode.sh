@@ -41,7 +41,9 @@ echo "Instruction: $instruction"
 if [[ "$mode" == "multi" ]]; then
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
   launch_code="$(cat "$script_dir/pika_capture_service.py")"
-  docker exec -it -e "PIKA_USE_HEAD=${PIKA_USE_HEAD:-false}" "$container" bash -lc \
+  docker exec -it -e "PIKA_USE_HEAD=${PIKA_USE_HEAD:-false}" \
+    -e "PIKA_EXPORT_FPS=${PIKA_EXPORT_FPS:-}" \
+    -e "PIKA_WRIST_CAMERA=${PIKA_WRIST_CAMERA:-fisheye}" "$container" bash -lc \
     'source "$1/install/setup.bash" && export ROS_LOG_DIR="$3/.ros_logs" && exec python3 -u -c "$2" "$3" --terminal "$4"' \
     _ "$ros_root" "$launch_code" "$container_data_dir" "$episode_index"
 else
@@ -68,7 +70,7 @@ PY
 
 if [[ "$mode" == "multi" ]]; then
   workspace="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-  echo "Export 20 Hz source data:"
+  echo "Export ${PIKA_EXPORT_FPS:-20} Hz source data:"
   printf '  bash %q export %s' "$workspace/pika_data.sh" "$episode_index"
   if [[ -n "${PIKA_DATA_DIR:-}" ]]; then
     printf ' --data-root %q' "$PIKA_DATA_DIR"

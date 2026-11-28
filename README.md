@@ -153,8 +153,43 @@ Measure the ChArUco center `(x, y, z)` relative to the midpoint of the two Piper
 # Record demonstrations (GUI session manager or terminal single-episode)
 ./pika session
 # or:
-./pika record --output-dir /path/to/raw --task "take a teddy bear and place it into a cardboard box"
+./pika record 10 "take a teddy bear and place it into a cardboard box" --data-root /path/to/raw
 ```
+
+To use RealSense D405 wrist RGB, pass `--wrist-camera d405` to sensors, the stream check, and capture.
+Stop the existing sensor process before switching modes.
+
+```bash
+# Terminal 1
+./pika sensors --camera-fps 30 --wrist-camera d405
+
+# Terminal 2
+./pika status --check-streams --wrist-camera d405
+./pika session --wrist-camera d405
+# Or record one episode
+./pika record 10 "fold a towel" --wrist-camera d405
+```
+
+New captures default to fisheye. An existing session reuses its saved wrist camera mode.
+For 60 Hz raw wrist RGB and a 60 Hz dataset, use:
+
+```bash
+# Terminal 1
+./pika sensors --camera-fps 60 --wrist-camera d405
+
+# Terminal 2
+./pika status --check-streams --wrist-camera d405 --fps 60
+./pika session --wrist-camera d405 --fps 60
+# Or record one episode and remember 60 Hz for subsequent export
+./pika record 10 "fold a towel" --wrist-camera d405 --fps 60
+```
+
+`--fps` accepts any integer from 5 through 90 Hz for the alignment grid and export.
+When omitted during export, the rate comes from the recording metadata or defaults to 20 Hz.
+D405 sensor profiles support `--camera-fps 15`, `30`, `60`, and `90`.
+The stream check prints the measured RGB rates. Export can reuse frames if a source camera is slower than the dataset rate.
+For D405, use the session's Convert button or the `./pika_data.sh export` → `prepare` → `lerobot` workflow.
+The separate `./pika import-raw` and `./pika convert-v21` workflows below expect fisheye recordings.
 
 Run multi-robot QA & screening (optional before export):
 ```bash

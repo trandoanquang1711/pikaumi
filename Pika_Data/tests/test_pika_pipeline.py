@@ -93,7 +93,7 @@ def test_handeye_rejects_unobservable_single_axis_motion():
     handeye.validate_excitation(Rotation.from_euler("xyz",[[0,0,0],[.2,0,0],[0,.3,0]]).as_matrix())
 
 
-def synthetic_episode(root):
+def synthetic_episode(root, image_fps=30):
     episode = root / "episode3"
     episode.mkdir()
     (episode / "instructions.json").write_text(json.dumps({"instructions": ["fold a towel"]}))
@@ -117,7 +117,7 @@ def synthetic_episode(root):
         (p / "config.json").write_text(json.dumps({
             "width":8,"height":6,"K":[4,0,4,0,4,3,0,0,1],"D":[0,0,0,0,0],
             "distortion_model":"plumb_bob"}))
-        for ns in [0, 33_333_000, 66_666_000, 100_000_000, 133_333_000, 166_666_000, 200_000_000]:
+        for ns in pipeline.timestamp_grid(0, 200_000_000, image_fps):
             if key.endswith("depth"):
                 image = np.full((6, 8), 50000, dtype=np.uint16)
             else:
@@ -218,22 +218,38 @@ def test_causal_wrist_pair_uses_the_earlier_pair_within_age_limit():
     assert ((-40 <= lo) & (lo <= 0) & (-40 <= ro) & (ro <= 0)).all()
 
 
-def test_vista_source_exports_with_only_wrist_cameras(tmp_path):
+@pytest.mark.parametrize("wrist_camera,fps", [("fisheye", 20), ("d405", 60), ("d405", 90)])
+def test_vista_source_exports_with_only_wrist_cameras(tmp_path, wrist_camera, fps):
     source = tmp_path / "raw"
     source.mkdir()
-    episode = synthetic_episode(source)
+    episode = synthetic_episode(source, image_fps=max(30, fps))
     for key, relative in pipeline.IMAGE_STREAMS.items():
-        if "fisheye" not in key:
+        if f"_{wrist_camera}_rgb" not in key:
             shutil.rmtree(episode / relative)
+    if wrist_camera == "d405":
+        shutil.rmtree(source / "episode1")
+        (episode / "capture_metadata.json").write_text(json.dumps({"wrist_camera": wrist_camera, "export_fps": fps}))
     output = tmp_path / "export"
     pipeline.main(["--data-root", str(source), "--output-dir", str(output),
                    "--episodes", episode.name, "--vista-only"])
-    with h5py.File(output / "pika_source_20hz.hdf5") as file:
+    source_file = output / f"pika_source_{fps}hz.hdf5"
+    with h5py.File(source_file) as file:
+        assert file.attrs["fps"] == fps
         assert file.attrs["wrist_pairing"] == "causal_pair"
-        assert file.attrs["max_image_skew_ms"] == 10
+        assert file.attrs["max_image_skew_ms"] == (10 if wrist_camera == "fisheye" else 40)
         group = file[f"source_episodes/{episode.name}"]
-        assert set(group["images"]) == {"left_fisheye_rgb", "right_fisheye_rgb"}
-        assert file["data"].attrs["total"] == 4
+        assert set(group["images"]) == {f"{side}_{wrist_camera}_rgb" for side in pipeline.SIDES}
+        assert group.attrs["wrist_camera"] == wrist_camera
+        assert file["data"].attrs["total"] == fps // 5
+    calibration = tmp_path / "tcp"
+    calibration.mkdir()
+    for side in pipeline.SIDES:
+        (calibration / f"{side}_pika_tcp.json").write_text(json.dumps({"transform": np.eye(4).tolist()}))
+    prepared = tmp_path / "prepared"
+    vla.prepare(source_file, episode, calibration, prepared, min_segment_seconds=0.1)
+    report = json.loads((prepared / "report.json").read_text())
+    assert report["cameras"]["observation.images.left_wrist"] == f"images/left_{wrist_camera}_rgb/frames"
+    assert report["fps"] == fps
 
 
 def test_motion_screen_rejects_stale_pose_and_its_recovery(monkeypatch, tmp_path):

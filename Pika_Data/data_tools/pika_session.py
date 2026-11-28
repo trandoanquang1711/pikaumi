@@ -12,7 +12,8 @@ import subprocess
 import tempfile
 from uuid import uuid4
 
-from pika_options import EXPORT_DEFAULTS, PREPARE_DEFAULTS, SESSION_DEFAULTS, TIMING_KEYS, WORKSPACE, head_arguments, option_arguments, source_filename
+from pika_options import (EXPORT_DEFAULTS, PREPARE_DEFAULTS, SESSION_DEFAULTS, TIMING_KEYS, WORKSPACE,
+                          head_arguments, option_arguments, session_settings, source_filename)
 
 
 PIKA = Path(__file__).resolve().parents[1]
@@ -41,7 +42,7 @@ class CaptureClient:
         self.active = False
         self.raw_root = raw_root
         self.storage = ExitStack()
-        self.settings = {**SESSION_DEFAULTS, **(settings or {})}
+        self.settings = session_settings(settings)
         self.recording = ExitStack()
 
     def response(self):
@@ -57,7 +58,9 @@ class CaptureClient:
 
     def start(self, episode, instruction):
         with self.log.open("a") as log:
-            check = [str(CLI), "status", "--check-streams", *option_arguments(self.settings, TIMING_KEYS), *head_arguments(self.settings["use_head"])]
+            check = [str(CLI), "status", "--check-streams",
+                     *option_arguments(self.settings, (*TIMING_KEYS, "wrist_camera")),
+                     *head_arguments(self.settings["use_head"])]
             if self.raw_root is not None:
                 check.extend(["--data-root", str(self.raw_root)])
             result = subprocess.run(check, stdout=log, stderr=subprocess.STDOUT, timeout=45)
@@ -74,7 +77,9 @@ class CaptureClient:
                         recorder, target = self.storage.enter_context(
                             capture_storage(self.raw_root, self.container, self.ros_root))
                     self.process = subprocess.Popen(
-                        ["docker", "exec", "-i", "-e", f"PIKA_USE_HEAD={str(self.settings['use_head']).lower()}", recorder, "bash", "-lc",
+                        ["docker", "exec", "-i", "-e", f"PIKA_USE_HEAD={str(self.settings['use_head']).lower()}",
+                         "-e", f"PIKA_WRIST_CAMERA={self.settings['wrist_camera']}",
+                         "-e", f"PIKA_EXPORT_FPS={self.settings['fps']}", recorder, "bash", "-lc",
                          'source "$1/install/setup.bash" && export ROS_NAMESPACE="$2" '
                          'ROS_LOG_DIR="$4/.ros_logs" && '
                          'exec python3 -u -c "$3" "$4"', "_", self.ros_root,
@@ -145,7 +150,7 @@ class Session:
                 if len(modes) > 1:
                     raise ValueError("Session contains mixed head camera modes; use separate sessions per task.")
                 saved_settings = {**saved_settings, "use_head": next(iter(modes), False)}
-            self.settings = {**SESSION_DEFAULTS, **saved_settings}
+            self.settings = session_settings(saved_settings)
             for key, value in (settings or {}).items():
                 if value != self.settings[key]:
                     raise ValueError(f"This session already has {key}={self.settings[key]}. "
@@ -153,7 +158,7 @@ class Session:
         else:
             if any(directory.iterdir()):
                 raise ValueError(f"Session directory already contains data: {directory}")
-            self.settings = {**SESSION_DEFAULTS, **(settings or {})}
+            self.settings = session_settings(settings)
             self.write_manifest([])
 
     def write_manifest(self, episodes):
@@ -271,7 +276,7 @@ def session_window(root, tk, ttk, session, client, args):
     number = tk.StringVar()
     ttk.Label(frame, text=f"Raw: {session.raw_root}\nOutput: {session.directory}\n"
               f"Dataset: {session.settings['fps']} Hz · Images: {session.settings['image_size'] or 'original size'} · "
-              f"Head: {'ON' if session.settings['use_head'] else 'OFF'}",
+              f"Wrist: {session.settings['wrist_camera']} · Head: {'ON' if session.settings['use_head'] else 'OFF'}",
               wraplength=620).pack(anchor="w")
     ttk.Label(frame, text="Instruction").pack(anchor="w", pady=(12, 0))
     entry = ttk.Entry(frame, textvariable=instruction, width=64)

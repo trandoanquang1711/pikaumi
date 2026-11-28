@@ -2,6 +2,7 @@
 import ast
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -25,15 +26,17 @@ def test_record_flag_reaches_external_recorder_environment(tmp_path, monkeypatch
     calls = []
     monkeypatch.setattr(cli.subprocess, "run", lambda command, **kw: calls.append((command, kw)))
     args = ["record", "12", "pick and place", "--data-root", str(tmp_path)]
-    cli.main(args + ([flag] if flag else []))
+    cli.main(args + ["--wrist-camera", "d405"] + ([flag] if flag else []))
     assert calls[-1][1]["env"]["PIKA_USE_HEAD"] == str(enabled).lower()
+    assert calls[-1][1]["env"]["PIKA_WRIST_CAMERA"] == "d405"
     assert calls[-1][1]["env"]["PIKA_CONTAINER"] == "external-recorder"
 
 
 @pytest.mark.parametrize("enabled", [False, True])
 def test_session_uses_same_flag_for_preflight_and_capture(tmp_path, monkeypatch, enabled):
     from pika_options import head_arguments
-    client = CaptureClient("sensors", "/capture", "/ros", tmp_path / "capture.log", settings={"use_head": enabled})
+    client = CaptureClient("sensors", "/capture", "/ros", tmp_path / "capture.log",
+                           settings={"use_head": enabled, "wrist_camera": "d405"})
     checks, starts = [], []
     monkeypatch.setattr("pika_session.subprocess.run", lambda cmd, **kw: checks.append(cmd) or SimpleNamespace(returncode=0))
     monkeypatch.setattr("pika_session.subprocess.Popen", lambda cmd, **kw: starts.append(cmd) or SimpleNamespace())
@@ -41,16 +44,22 @@ def test_session_uses_same_flag_for_preflight_and_capture(tmp_path, monkeypatch,
     monkeypatch.setattr(client, "call", lambda *a, **kw: None)
     client.start(1, "fold towel")
     assert head_arguments(enabled)[0] in checks[0]
+    assert checks[0][checks[0].index("--wrist-camera") + 1] == "d405"
     assert f"PIKA_USE_HEAD={str(enabled).lower()}" in starts[0]
+    assert "PIKA_WRIST_CAMERA=d405" in starts[0]
 
 
 def test_session_mode_is_persisted_and_cannot_change_on_resume(tmp_path):
     raw = tmp_path / "raw"
-    session = Session(tmp_path, raw, {"use_head": True})
+    session = Session(tmp_path, raw, {"use_head": True, "wrist_camera": "d405"})
     assert json.loads(session.manifest.read_text())["settings"]["use_head"] is True
     assert Session(tmp_path, raw).settings["use_head"] is True
+    assert Session(tmp_path, raw).settings["wrist_camera"] == "d405"
+    assert session.settings["max_image_skew_ms"] == 40
     with pytest.raises(ValueError, match="use_head=True"):
         Session(tmp_path, raw, {"use_head": False})
+    with pytest.raises(ValueError, match="wrist_camera=d405"):
+        Session(tmp_path, raw, {"wrist_camera": "fisheye"})
 
 
 def test_legacy_head_session_infers_its_existing_mode(tmp_path):
@@ -68,12 +77,12 @@ def test_legacy_head_session_infers_its_existing_mode(tmp_path):
 def test_capture_selects_local_profile_without_changing_global_ros_params(tmp_path, monkeypatch, requested, available):
     monkeypatch.setenv("PIKA_USE_HEAD", requested)
     tree = ast.parse((ROOT / "scripts/pika_capture_service.py").read_text())
-    names = {"selected_head_profile", "capture_launch", "write_capture_metadata"}
+    names = {"selected_head_profile", "wrist_camera_profile", "capture_launch", "write_capture_metadata"}
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
     launch = next(node for node in tree.body if isinstance(node, ast.Assign)
                   and any(isinstance(t, ast.Name) and t.id == "LAUNCH" for t in node.targets))
     profile = dict(enabled=available, enable_depth=False)
-    namespace = {"json": json, "rospy": SimpleNamespace(get_param=lambda *args: profile)}
+    namespace = {"json": json, "os": os, "rospy": SimpleNamespace(get_param=lambda *args: profile)}
     exec(compile(ast.Module(body=[launch, *nodes], type_ignores=[]), "capture", "exec"), namespace)
     if requested == "true" and not available:
         with pytest.raises(ValueError, match="sensors --use-head"):
@@ -106,8 +115,9 @@ def test_status_forwards_mode_to_live_probe(monkeypatch, flag):
     monkeypatch.setattr(cli, "status", lambda *args: None)
     monkeypatch.setattr(cli, "export_python", lambda: "/python")
     monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
-    cli.main(["status", "--check-streams", flag])
+    cli.main(["status", "--check-streams", flag, "--wrist-camera", "d405"])
     assert flag in calls[0]
+    assert calls[0][calls[0].index("--wrist-camera") + 1] == "d405"
 
 
 @pytest.mark.parametrize("flag", ["--use-head", "--no-use-head"])
@@ -119,6 +129,8 @@ def test_live_probe_receives_process_local_mode(monkeypatch, flag):
         calls.append(cmd)
         return SimpleNamespace(stdout=json.dumps(live_sample()))
     monkeypatch.setattr(pika_sync.subprocess, "run", run)
-    monkeypatch.setattr(sys, "argv", ["pika_sync", "--container", "pika", "--ros-root", "/ros", flag])
+    monkeypatch.setattr(sys, "argv", ["pika_sync", "--container", "pika", "--ros-root", "/ros",
+                                     flag, "--wrist-camera", "d405"])
     pika_sync.main()
     assert f"PIKA_USE_HEAD={str(flag == '--use-head').lower()}" in calls[0]
+    assert "PIKA_WRIST_CAMERA=d405" in calls[0]

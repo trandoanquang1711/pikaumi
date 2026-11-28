@@ -13,8 +13,10 @@ import subprocess
 import sys
 import tempfile
 
-from pika_options import (CALIBRATION, WORKSPACE, EXPORT_DEFAULTS, PREPARE_DEFAULTS, TIMING_KEYS, add_export_options,
-                          add_prepare_options, add_timing_options, add_head_option, head_arguments, option_arguments, positive_float, source_filename)
+from pika_options import (CALIBRATION, CAMERA_FPS_CHOICES, WORKSPACE, EXPORT_DEFAULTS, PREPARE_DEFAULTS, TIMING_KEYS,
+                          add_export_options, add_fps_option, add_prepare_options, add_timing_options, add_head_option,
+                          add_wrist_option, head_arguments, option_arguments, positive_float, recorded_export_fps,
+                          recorded_wrist_camera, source_filename)
 
 PIKA = Path(__file__).resolve().parents[1]
 PIKA_CLI = WORKSPACE / "pika"
@@ -93,15 +95,18 @@ def export_source(args, container, container_path):
     source = root / episode
     if not source.is_dir():
         raise ValueError(f"Episode not found: {source}")
+    if args.fps is None:
+        args.fps = recorded_export_fps(source)
     destination = (args.output_dir or (
         args.output_root / "source" / episode if args.output_root else
         WORKSPACE / "data/pika_exports" / episode)).expanduser().resolve()
     if destination.exists():
         raise ValueError(f"Output already exists and will not be overwritten: {destination}")
     calibration = args.calibration_dir.expanduser().resolve()
-    for side in ("left", "right"):
-        if not (calibration / f"{side}_fisheye_intrinsics.json").is_file():
-            raise ValueError(f"Missing {side} camera intrinsics in {calibration}")
+    if recorded_wrist_camera(source) == "fisheye" or not args.vista_only:
+        for side in ("left", "right"):
+            if not (calibration / f"{side}_fisheye_intrinsics.json").is_file():
+                raise ValueError(f"Missing {side} camera intrinsics in {calibration}")
     command = [export_python(), str(PIKA / "data_tools/prepare_pika_dataset.py"),
                "--data-root", str(root), "--episodes", episode,
                "--calibration-dir", str(calibration), "--output-dir", str(destination)]
@@ -143,6 +148,13 @@ def status(container, container_path, ros_root, raw_root=None, sample_timeout=5.
     print("Both tracking samples are valid. Tracking may change during recording.", flush=True)
 
 
+def check_streams(args, container, ros_root):
+    subprocess.run([export_python(), str(PIKA / "data_tools/pika_sync.py"),
+                    "--container", container, "--ros-root", ros_root,
+                    *option_arguments(vars(args), (*TIMING_KEYS, "wrist_camera")),
+                    *head_arguments(args.use_head)], check=True)
+
+
 def main(argv=None):
     arguments = sys.argv[1:] if argv is None else list(argv)
     delegated_pika_cmds = {
@@ -165,8 +177,8 @@ def main(argv=None):
     sub.add_parser("review", help="Render offline 3D kinematic retargeting preview via ./pika replay")
     sub.add_parser("review-joints", help="Validate & render FK diagnostics for converted joints via ./pika replay-joints")
     sensors = sub.add_parser("sensors", help="Start Pika sensors in a dedicated terminal and keep it open")
-    sensors.add_argument("--camera-fps", type=int, choices=(15, 30),
-                         help="Raw camera frame rate. Uses the startup script setting by default, currently 30")
+    sensors.add_argument("--camera-fps", type=int, choices=CAMERA_FPS_CHOICES,
+                         help="Raw camera frame rate. 60 and 90 require --wrist-camera d405. Default: startup script setting.")
     check = sub.add_parser("status", help="Read Docker and tracking status")
     raw_help = "Host directory containing raw episodes. Defaults to PIKA_DATA_DIR or the Docker mount"
     output_help = "Host output directory for source/, prepared/, lerobot/, or capture sessions"
@@ -176,11 +188,12 @@ def main(argv=None):
     check.add_argument("--check-streams", action="store_true",
                        help="Also check six streams and timestamp alignment over approximately three seconds")
     add_timing_options(check)
-    check.set_defaults(**{key: EXPORT_DEFAULTS[key] for key in TIMING_KEYS})
+    check.set_defaults(**{key: EXPORT_DEFAULTS[key] for key in TIMING_KEYS if key != "max_image_skew_ms"})
     record = sub.add_parser("record", help="Record a dual-Pika episode. Press Enter to finish")
     record.add_argument("episode", type=episode_index, help="Unused episode number, such as 10 or episode10")
     record.add_argument("instruction", nargs="?", help="Task instruction. Omit to enter it interactively")
     record.add_argument("--data-root", type=Path, help=raw_help)
+    add_fps_option(record, description="Check alignment before recording at this rate (5–90 Hz) and save it for export")
     session = sub.add_parser("session", help="Open the recording, saving, and conversion window")
     session.add_argument("--session-dir", type=Path, help="Reopen a session with its saved raw path and processing settings")
     session.add_argument("--start-episode", type=lambda value: int(episode_index(value)),
@@ -209,14 +222,14 @@ def main(argv=None):
     export.add_argument("--output-root", type=Path, help=output_help)
     export.add_argument("--calibration-dir", type=Path, default=CALIBRATION,
                         help="Fisheye intrinsics directory. Default: data/calibration")
-    add_export_options(export)
+    add_export_options(export, fps_help="Dataset rate (5–90 Hz). Defaults to the recorded export rate or 20 Hz.")
     export.set_defaults(**EXPORT_DEFAULTS)
-    export.set_defaults(max_image_skew_ms=None)
+    export.set_defaults(fps=None, max_image_skew_ms=None)
     profile = export.add_mutually_exclusive_group()
     profile.add_argument("--vista-only", dest="vista_only", action="store_true", default=True,
-                         help="Export wrist fisheye images, poses, and gripper data for VISTA (default)")
+                         help="Export the recorded wrist RGB pair, poses, and gripper data (default)")
     profile.add_argument("--all-streams", dest="vista_only", action="store_false",
-                         help="Include D405 RGB and depth. Requires both streams in the recording")
+                         help="Export legacy recordings containing fisheye RGB, D405 RGB, and D405 depth")
     prepare = sub.add_parser("prepare", help="Filter tracking jumps and generate relative TCP labels")
     prepare.add_argument("episode", type=episode_index, help="Episode number to label, such as 9")
     prepare.add_argument("--data-root", type=Path, help=raw_help)
@@ -243,10 +256,14 @@ def main(argv=None):
                          help="Dual Piper base and TCP transforms for the piper-joint representation")
     for head_parser in (sensors, check, record, session):
         add_head_option(head_parser, default=False if head_parser is record else None)
+    for wrist_parser in (sensors, check, record, session):
+        add_wrist_option(wrist_parser, default=None if wrist_parser is session else "fisheye")
     args = parser.parse_args(argv)
     if args.operation is None:
         parser.print_help()
         return
+    if args.operation == "sensors" and args.camera_fps in (60, 90) and args.wrist_camera != "d405":
+        sensors.error(f"--camera-fps {args.camera_fps} requires --wrist-camera d405")
     container = os.environ.get("PIKA_CONTAINER", "pika-ros")
     container_path = os.environ.get("PIKA_CONTAINER_DATA_DIR", "/home/agilex/data")
     ros_root = os.environ.get("PIKA_ROS_ROOT", "/root/pika_ros")
@@ -326,9 +343,7 @@ def main(argv=None):
     elif args.operation == "status":
         status(container, container_path, ros_root, args.data_root, args.timeout)
         if args.check_streams:
-            subprocess.run([export_python(), str(PIKA / "data_tools/pika_sync.py"),
-                            "--container", container, "--ros-root", ros_root,
-                            *option_arguments(vars(args), TIMING_KEYS), *head_arguments(args.use_head)], check=True)
+            check_streams(args, container, ros_root)
     elif args.operation == "session":
         from pika_session import open_session
 
@@ -367,7 +382,8 @@ def main(argv=None):
         code = (PIKA / "scripts/start_pika_sensors.py").read_text()
         config = (PIKA / "config/sensors.yaml").read_text()
         head_env = [] if args.use_head is None else ["-e", f"PIKA_USE_HEAD={str(args.use_head).lower()}"]
-        subprocess.run(["docker", "exec", "-it", *head_env, container, "bash", "-lic",
+        subprocess.run(["docker", "exec", "-it", *head_env, "-e", f"PIKA_WRIST_CAMERA={args.wrist_camera}",
+                        container, "bash", "-lic",
                         'source "$1/install/setup.bash" && exec python3 -c "$2" "$1" "$3" "$4"',
                         "_", ros_root, code, str(args.camera_fps) if args.camera_fps is not None else "", config],
                        check=True)
@@ -376,31 +392,30 @@ def main(argv=None):
         command = ["bash", str(PIKA / "scripts" / script), "multi", args.episode]
         if args.operation == "record" and args.instruction is not None:
             command.append(args.instruction)
+        explicit_root = args.data_root or os.environ.get("PIKA_DATA_DIR")
         with ExitStack() as resources:
+            env = os.environ.copy()
             if args.operation == "record":
                 from pika_storage import episode_lock
 
+                env.update(PIKA_USE_HEAD=str(args.use_head).lower(), PIKA_WRIST_CAMERA=args.wrist_camera,
+                           PIKA_EXPORT_FPS=str(args.fps) if args.fps is not None else "")
                 raw_root = resolve_data_root(args.data_root, container, container_path)
                 resources.enter_context(episode_lock(raw_root, args.episode))
-            if args.data_root or os.environ.get("PIKA_DATA_DIR"):
+                if args.fps is not None:
+                    check_streams(args, container, ros_root)
+            if explicit_root:
                 from pika_storage import capture_storage
 
                 raw_root = resolve_data_root(args.data_root, container, container_path)
                 recorder, target = resources.enter_context(capture_storage(raw_root, container, ros_root))
-                env = os.environ.copy()
                 env.update(PIKA_CONTAINER=recorder, PIKA_CONTAINER_DATA_DIR=target,
                            PIKA_DATA_DIR=str(raw_root))
-                if args.operation == "record":
-                    env["PIKA_USE_HEAD"] = str(args.use_head).lower()
                 print(f"Host raw directory: {raw_root}", flush=True)
+            if args.operation == "record" or explicit_root:
                 subprocess.run(command, check=True, env=env)
             else:
-                if args.operation == "record":
-                    env = os.environ.copy()
-                    env["PIKA_USE_HEAD"] = str(args.use_head).lower()
-                    subprocess.run(command, check=True, env=env)
-                else:
-                    subprocess.run(command, check=True)
+                subprocess.run(command, check=True)
 
 
 if __name__ == "__main__":

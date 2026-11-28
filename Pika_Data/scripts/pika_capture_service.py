@@ -1,6 +1,7 @@
 """JSON-line bridge to the installed Pika recorder, executed inside pika-ros."""
 
 import json
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -27,23 +28,21 @@ LAUNCH = """<launch>
     <arg name="episodeIndex" value="$(arg episodeIndex)"/>
     <arg name="datasetDir" value="$(arg datasetDir)"/>
   </include>
-  <!-- Only the VISTA cameras are required. Missing D405 must not stop capture. -->
-  <rosparam>
-dataInfo:
-  camera:
-    color:
-      names: ['pikaFisheyeCamera_l', 'pikaFisheyeCamera_r']
-      parentFrames: ['camera_fisheye_l_link', 'camera_fisheye_r_link']
-      topics: ['/camera_fisheye_l/color/image_raw', '/camera_fisheye_r/color/image_raw']
-      configTopics: ['/camera_fisheye_l/color/camera_info', '/camera_fisheye_r/color/camera_info']
-    depth: {names: [], parentFrames: [], topics: [], configTopics: []}
-  </rosparam>
+  <rosparam/>
 </launch>
 """
 
 
+def wrist_camera_profile():
+    mode = os.environ.get("PIKA_WRIST_CAMERA", "fisheye")
+    profiles = {"fisheye": ("pikaFisheyeCamera", "camera_fisheye"),
+                "d405": ("pikaDepthCamera", "camera")}
+    if mode not in profiles:
+        raise ValueError(f"Unsupported wrist camera: {mode}")
+    return mode, *profiles[mode]
+
+
 def selected_head_profile():
-    import os
     profile = dict(rospy.get_param("/pika_head_camera", {"enabled": False}))
     requested = os.environ.get("PIKA_USE_HEAD")
     if requested == "true" and not profile.get("enabled"):
@@ -56,35 +55,46 @@ def selected_head_profile():
 def capture_launch():
     import xml.etree.ElementTree as ET
     root = ET.fromstring(LAUNCH)
+    _, camera, topic = wrist_camera_profile()
+    color = {"names": [f"{camera}_l", f"{camera}_r"],
+             "parentFrames": [f"{topic}_l_link", f"{topic}_r_link"],
+             "topics": [f"/{topic}_l/color/image_raw", f"/{topic}_r/color/image_raw"],
+             "configTopics": [f"/{topic}_l/color/camera_info", f"/{topic}_r/color/camera_info"]}
+    depth = {key: [] for key in color}
     profile = selected_head_profile()
     if profile.get("enabled"):
-        color = {"names": ["pikaFisheyeCamera_l", "pikaFisheyeCamera_r", "headCamera"],
-                 "parentFrames": ["camera_fisheye_l_link", "camera_fisheye_r_link", "camera_head_color_optical_frame"],
-                 "topics": ["/camera_fisheye_l/color/image_raw", "/camera_fisheye_r/color/image_raw", "/camera_head/color/image_raw"],
-                 "configTopics": ["/camera_fisheye_l/color/camera_info", "/camera_fisheye_r/color/camera_info", "/camera_head/color/camera_info"]}
-        depth = {key: [] for key in color}
+        color["names"].append("headCamera")
+        color["parentFrames"].append("camera_head_color_optical_frame")
+        color["topics"].append("/camera_head/color/image_raw")
+        color["configTopics"].append("/camera_head/color/camera_info")
         if profile.get("enable_depth"):
             depth = dict(names=["headCamera"], parentFrames=["camera_head_color_optical_frame"],
                          topics=["/camera_head/aligned_depth_to_color/image_raw"],
                          configTopics=["/camera_head/aligned_depth_to_color/camera_info"])
-        root.find("rosparam").text = json.dumps({"dataInfo": {"camera": {"color": color, "depth": depth}}})
+    root.find("rosparam").text = json.dumps({"dataInfo": {"camera": {"color": color, "depth": depth}}})
     return ET.tostring(root, encoding="unicode")
 
 
 def write_capture_metadata(path):
+    mode, camera, _ = wrist_camera_profile()
     profile = selected_head_profile()
-    temporary = path / ".capture_metadata.tmp"
-    temporary.write_text(json.dumps({"version": 1, "head_camera": profile}, indent=2) + "\n")
-    temporary.replace(path / "capture_metadata.json")
+    streams = [f"camera/color/{camera}_{side}" for side in ("l", "r")] if mode == "d405" else []
     if profile.get("enabled"):
-        streams = ["camera/color/headCamera"]
+        streams.append("camera/color/headCamera")
         if profile.get("enable_depth"):
             streams.append("camera/depth/headCamera")
-        for relative in streams:
-            directory = path / relative
-            if not (directory / "config.json").is_file() or not any(
-                    p.suffix.lower() in {".jpg", ".png"} for p in directory.glob("*")):
-                raise ValueError(f"Missing configured head camera stream: {relative}")
+    for relative in streams:
+        directory = path / relative
+        if not (directory / "config.json").is_file() or not any(
+                p.is_file() and p.suffix.lower() in {".jpg", ".png"} for p in directory.glob("*")):
+            label = "head camera" if relative.endswith("/headCamera") else "D405 camera"
+            raise ValueError(f"Missing configured {label} stream: {relative}")
+    metadata = {"version": 1, "head_camera": profile, "wrist_camera": mode}
+    if os.environ.get("PIKA_EXPORT_FPS"):
+        metadata["export_fps"] = int(os.environ["PIKA_EXPORT_FPS"])
+    temporary = path / ".capture_metadata.tmp"
+    temporary.write_text(json.dumps(metadata, indent=2) + "\n")
+    temporary.replace(path / "capture_metadata.json")
 
 
 class TrackingLog:
@@ -148,9 +158,10 @@ def wait_statistics(path):
 
 def check_saved_episode(path, instruction):
     wait_statistics(path)
+    _, camera, _ = wrist_camera_profile()
     for side in ("l", "r"):
         streams = [
-            (f"camera/color/pikaFisheyeCamera_{side}", {".jpg", ".png"}),
+            (f"camera/color/{camera}_{side}", {".jpg", ".png"}),
             (f"localization/pose/pika_{side}", {".json"}),
             (f"gripper/encoder/pika_{side}", {".json"}),
         ]

@@ -1,6 +1,7 @@
 """Offline D435i launch, dropout, calibration and three-view regression tests."""
 import ast
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -37,19 +38,49 @@ def test_serial_validation_and_launch_lifecycle(tmp_path):
     assert len(ET.fromstring(head_launch(launch, {})).findall("include")) == 1
 
 
-def test_capture_profile_and_required_head_files(tmp_path):
+def test_d405_sensor_launch_skips_fisheye_nodes(tmp_path):
+    launch = tmp_path / "installed.launch"
+    launch.write_text("""<launch>
+      <arg name="camera_fps" default="30" />
+      <node pkg="sensor_tools" type="usb_camera.py" name="$(arg name_index)camera_fisheye_l" />
+      <node pkg="sensor_tools" type="usb_camera.py" name="$(arg name_index)camera_fisheye_r" />
+      <node pkg="sensor_tools" type="serial_gripper_imu" name="gripper" />
+      <include file="$(find realsense2_camera)/launch/multi_camera.launch" />
+      <include file="$(find pika_locator)/launch/pika_double_locator.launch" />
+    </launch>""")
+    root = ET.fromstring(head_launch(launch, {}, wrist_camera="d405"))
+    assert [node.get("type") for node in root.findall("node")] == ["serial_gripper_imu"]
+    assert len(root.findall("include")) == 2
+    assert len(ET.parse(launch).getroot().findall("node")) == 3
+
+
+@pytest.mark.parametrize("wrist_camera", ["fisheye", "d405"])
+def test_capture_profile_and_required_head_files(tmp_path, monkeypatch, wrist_camera):
+    monkeypatch.setenv("PIKA_WRIST_CAMERA", wrist_camera)
+    monkeypatch.setenv("PIKA_EXPORT_FPS", "60")
     # Load the pure launch/save helpers without ROS dependencies.
     tree = ast.parse((ROOT / "scripts/pika_capture_service.py").read_text())
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef)
-             and n.name in {"selected_head_profile", "capture_launch", "write_capture_metadata"}]
+             and n.name in {"selected_head_profile", "wrist_camera_profile", "capture_launch", "write_capture_metadata"}]
     assignment = next(n for n in tree.body if isinstance(n, ast.Assign)
                       and any(isinstance(t, ast.Name) and t.id == "LAUNCH" for t in n.targets))
-    namespace = {"json": json, "rospy": SimpleNamespace(get_param=lambda *a: dict(enabled=True, enable_depth=True))}
+    namespace = {"json": json, "os": os,
+                 "rospy": SimpleNamespace(get_param=lambda *a: dict(enabled=True, enable_depth=True))}
     exec(compile(ast.Module(body=[assignment, *nodes], type_ignores=[]), "capture", "exec"), namespace)
     root = ET.fromstring(namespace["capture_launch"]())
     cameras = json.loads(root.find("rosparam").text)["dataInfo"]["camera"]
+    topic_prefix = "camera" if wrist_camera == "d405" else "camera_fisheye"
+    assert cameras["color"]["topics"][:2] == [f"/{topic_prefix}_{side}/color/image_raw" for side in ("l", "r")]
     assert cameras["color"]["names"][-1] == "headCamera"
     assert cameras["depth"]["topics"] == ["/camera_head/aligned_depth_to_color/image_raw"]
+    if wrist_camera == "d405":
+        with pytest.raises(ValueError, match="D405 camera"):
+            namespace["write_capture_metadata"](tmp_path)
+        for side in ("l", "r"):
+            directory = tmp_path / "camera" / "color" / f"pikaDepthCamera_{side}"
+            directory.mkdir(parents=True)
+            (directory / "config.json").write_text('{}')
+            (directory / "1.000000.png").touch()
     with pytest.raises(ValueError, match="head camera"):
         namespace["write_capture_metadata"](tmp_path)
     for kind in ("color", "depth"):
@@ -58,7 +89,10 @@ def test_capture_profile_and_required_head_files(tmp_path):
         (directory / "config.json").write_text('{}')
         (directory / "1.000000.png").touch()
     namespace["write_capture_metadata"](tmp_path)
-    assert json.loads((tmp_path / "capture_metadata.json").read_text())["head_camera"]["enabled"]
+    metadata = json.loads((tmp_path / "capture_metadata.json").read_text())
+    assert metadata["head_camera"]["enabled"]
+    assert metadata["wrist_camera"] == wrist_camera
+    assert metadata["export_fps"] == 60
 
 
 def test_head_pairing_never_uses_future_and_rejects_dropout():
