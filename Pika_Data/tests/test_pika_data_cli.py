@@ -42,7 +42,9 @@ def test_record_dispatch_preserves_instruction_as_one_argument(tmp_path, monkeyp
     assert calls == [["bash", str(ROOT / "scripts/record_pika_episode.sh"), "multi", "9", instruction]]
 
 
-@pytest.mark.parametrize("wrist_camera,fps", [("fisheye", ""), ("d405", "60"), ("d405", "90")])
+@pytest.mark.parametrize("wrist_camera,fps", [
+    ("fisheye", ""), ("fisheye", "60"), ("fisheye", "90"), ("d405", "60"), ("d405", "90"),
+])
 def test_sensor_start_loads_existing_tracker_environment(monkeypatch, wrist_camera, fps):
     calls = []
     monkeypatch.setattr(cli.subprocess, "run", lambda args, **kwargs: calls.append(args))

@@ -186,7 +186,7 @@ For 60 Hz raw wrist RGB and a 60 Hz dataset, use:
 
 `--fps` accepts any integer from 5 through 90 Hz for the alignment grid and export.
 When omitted during export, the rate comes from the recording metadata or defaults to 20 Hz.
-D405 sensor profiles support `--camera-fps 15`, `30`, `60`, and `90`.
+Both D405 and the Pika fisheye cameras support `--camera-fps 15`, `30`, `60`, and `90` at 640×480.
 The stream check prints the measured RGB rates. Export can reuse frames if a source camera is slower than the dataset rate.
 For D405, use the session's Convert button or the `./pika_data.sh export` → `prepare` → `lerobot` workflow.
 The separate `./pika import-raw` and `./pika convert-v21` workflows below expect fisheye recordings.

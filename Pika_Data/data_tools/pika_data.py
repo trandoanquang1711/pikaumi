@@ -178,7 +178,7 @@ def main(argv=None):
     sub.add_parser("review-joints", help="Validate & render FK diagnostics for converted joints via ./pika replay-joints")
     sensors = sub.add_parser("sensors", help="Start Pika sensors in a dedicated terminal and keep it open")
     sensors.add_argument("--camera-fps", type=int, choices=CAMERA_FPS_CHOICES,
-                         help="Raw camera frame rate. 60 and 90 require --wrist-camera d405. Default: startup script setting.")
+                         help="Raw wrist camera frame rate. Default: startup script setting.")
     check = sub.add_parser("status", help="Read Docker and tracking status")
     raw_help = "Host directory containing raw episodes. Defaults to PIKA_DATA_DIR or the Docker mount"
     output_help = "Host output directory for source/, prepared/, lerobot/, or capture sessions"
@@ -262,8 +262,6 @@ def main(argv=None):
     if args.operation is None:
         parser.print_help()
         return
-    if args.operation == "sensors" and args.camera_fps in (60, 90) and args.wrist_camera != "d405":
-        sensors.error(f"--camera-fps {args.camera_fps} requires --wrist-camera d405")
     container = os.environ.get("PIKA_CONTAINER", "pika-ros")
     container_path = os.environ.get("PIKA_CONTAINER_DATA_DIR", "/home/agilex/data")
     ros_root = os.environ.get("PIKA_ROS_ROOT", "/root/pika_ros")

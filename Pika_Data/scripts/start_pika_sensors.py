@@ -75,11 +75,9 @@ def build_sensor_child_env(base_env, vive_trackers=None):
     return child_env
 
 
-def configured_script(path, camera_fps=None, depth_serials=None, vive_trackers=None, *, wrist_camera="fisheye"):
+def configured_script(path, camera_fps=None, depth_serials=None, vive_trackers=None):
     if camera_fps is not None and camera_fps not in (15, 30, 60, 90):
         raise ValueError("Camera FPS must be 15, 30, 60, or 90.")
-    if camera_fps in (60, 90) and wrist_camera != "d405":
-        raise ValueError(f"Camera FPS {camera_fps} requires --wrist-camera d405.")
     script = path.read_text()
     if camera_fps is not None:
         script, count = re.subn(r"(?m)^camera_fps=[0-9]+[ \t]*$", f"camera_fps={camera_fps}", script)
@@ -187,7 +185,6 @@ def main():
         int(sys.argv[2]) if sys.argv[2] else None,
         serials,
         vive_trackers=vive_trackers,
-        wrist_camera=wrist_camera,
     )
     head = dict(config.get("head_camera", {}))
     if "PIKA_USE_HEAD" in os.environ:

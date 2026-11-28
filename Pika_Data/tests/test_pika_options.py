@@ -70,8 +70,8 @@ def test_session_passes_custom_processing_flags_to_all_stages(tmp_path, monkeypa
     assert calls[2][calls[2].index("--repo-id") + 1] == "local/my_towels"
 
 
-@pytest.mark.parametrize("fps,wrist_camera", [(15, "fisheye"), (60, "d405"), (90, "d405")])
-def test_camera_override_preserves_startup_paths_and_only_changes_requested_rate(tmp_path, fps, wrist_camera):
+@pytest.mark.parametrize("fps", [15, 60, 90])
+def test_camera_override_preserves_startup_paths_and_only_changes_requested_rate(tmp_path, fps):
     spec = importlib.util.spec_from_file_location("pika_sensor_options", ROOT / "scripts/start_pika_sensors.py")
     sensor = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sensor)
@@ -82,14 +82,12 @@ def test_camera_override_preserves_startup_paths_and_only_changes_requested_rate
                 'serial=260522277249\n'
                 'printf "%s|%s|%s" "$camera_fps" "$SCRIPT_DIR" "$serial"\n')
     path.write_text(original)
-    script = sensor.configured_script(path, fps, wrist_camera=wrist_camera)
+    script = sensor.configured_script(path, fps)
     result = subprocess.run(["bash", "-c", script, str(path)], check=True, capture_output=True, text=True)
     assert result.stdout == f"{fps}|{path.parent}|260522277249"
     assert path.read_text() == original
     with pytest.raises(ValueError, match="15, 30, 60, or 90"):
         sensor.configured_script(path, 20)
-    with pytest.raises(ValueError, match="60 requires --wrist-camera d405"):
-        sensor.configured_script(path, 60)
 
 
 @pytest.mark.parametrize("fps", [None, 15, 30])
@@ -119,8 +117,7 @@ def test_startup_applies_both_serials_even_without_an_fps_override(tmp_path, fps
     ["session", "--max-image-offset-ms", "nan"],
     ["prepare", "9", "--max-speed-m-s", "-1"],
     ["status", "--timeout", "inf"], ["sensors", "--camera-fps", "20"],
-    ["sensors", "--camera-fps", "60"],
-    ["sensors", "--camera-fps", "90"],
+    ["sensors", "--camera-fps", "120"],
 ])
 def test_invalid_flags_fail_before_touching_docker(arguments, monkeypatch):
     import pika_data
